@@ -14,15 +14,18 @@ config({
 });
 // const tools = [readTool]
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   options: {
     prompt: { type: "string", short: "p" },
     provider: { type: "string", default: "groq" },
     model: { type: "string" },
   },
+  allowPositionals: true,
 });
 
-if (!values.prompt) {
+const prompt = values.prompt ?? positionals[0];
+
+if (!prompt) {
   console.error(
     `no prompt sirr, mypi -p "prompt" --provider anthropic OR groq `,
   );
@@ -31,7 +34,7 @@ if (!values.prompt) {
 
 const provider = getProvider(values.provider);
 const model = values.model ?? provider.defaultModel;
-const messages: Message[] = [{ role: "user", content: values.prompt }];
+const messages: Message[] = [{ role: "user", content: prompt }];
 
 await runAgent({
   provider,

@@ -25,7 +25,7 @@ export type AgentOptions = {
 
 export async function runAgent(opts: AgentOptions): Promise<void> {
   const { provider, model, system, tools, messages, onEvent } = opts;
-  const maxTurns = opts.maxTurns ?? 20;
+  const maxTurns = opts.maxTurns ?? 10;
   const push = (message: Message) => {
     messages.push(message);
     onEvent({ type: "message", message });
@@ -33,7 +33,16 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
   
   for(let turn=1; turn<=maxTurns; ++turn){
         let assistant:AssistantMessage|undefined
-        for await(const event of provider.stream({messages,model,system,tools})){
+        
+        let contextMessages = messages;
+        if (messages.length > 6) {
+            contextMessages = messages.slice(-6);
+            if (contextMessages.length > 0 && contextMessages[0].role === "toolResult") {
+                contextMessages = messages.slice(-7);
+            }
+        }
+
+        for await(const event of provider.stream({messages: contextMessages, model, system, tools})){
             if(event.type==="text_delta") onEvent({type:"text", delta:event.delta})
             else assistant = event.message
         }
@@ -53,6 +62,9 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
                 const tool=tools.find((t)=>t.name===call.name);
                 if(!tool) throw new Error(`unknown tool name ${tool}`)
                 result = await tool.execute(call.arguments)
+                if (result.length > 3000) {
+                    result = result.substring(0, 3000) + "\n... [truncated]";
+                }
             } catch (e) {
                 result=`Error ${e instanceof Error?e.message:String(e)}`
                 isError=true

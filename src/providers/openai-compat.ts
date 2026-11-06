@@ -26,6 +26,8 @@ function toOpenAI(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
   });
 }
 
+// console.error("approx chars in messages:", JSON.stringify(chat).length);
+
 // one adapter for every OpenAI-compatible API: only baseURL, key and model change
 export function createOpenAICompat(name: string, baseURL: string, apiKey: string | undefined, defaultModel: string): Provider {
   const client = new OpenAI({ baseURL, apiKey });
@@ -37,6 +39,7 @@ export function createOpenAICompat(name: string, baseURL: string, apiKey: string
       const stream = await client.chat.completions.create({
         model,
         stream: true,
+        max_tokens:5000,
         stream_options: { include_usage: true }, // usage comes in the last chunk
         messages: system ? [{ role: "system", content: system }, ...chat] : chat,
         tools: tools.length
