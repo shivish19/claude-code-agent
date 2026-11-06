@@ -4,14 +4,13 @@ import type { ContentBlock, Message, Provider, StopReason, Usage } from "../type
 // our messages -> OpenAI's wire format
 function toOpenAI(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
   return messages.map((m): OpenAI.ChatCompletionMessageParam => {
-    if (m.role === "user") return { role: "user", content: m.content };
+    if (m.role === "user") return { role: "user", content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) };
     if (m.role === "assistant") {
       const text = m.content.filter((b) => b.type === "text").map((b) => b.text).join("");
       const calls = m.content.filter((b) => b.type === "toolCall");
       return {
         role: "assistant",
         content: text || null,
-        // OpenAI wants the arguments as a JSON *string*
         tool_calls: calls.length
           ? calls.map((c) => ({
               id: c.id,
@@ -21,8 +20,7 @@ function toOpenAI(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
           : undefined,
       };
     }
-    // toolResult -> its own message with role "tool"
-    return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+    return { role: "tool", tool_call_id: m.toolCallId, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) };
   });
 }
 
@@ -31,6 +29,11 @@ function toOpenAI(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
 // one adapter for every OpenAI-compatible API: only baseURL, key and model change
 export function createOpenAICompat(name: string, baseURL: string, apiKey: string | undefined, defaultModel: string): Provider {
   const client = new OpenAI({ baseURL, apiKey });
+  
+  // Groq on-demand tier has a very tight Output Tokens Per Minute (OTPM) cap (~1000).
+  // We set a conservative max_tokens to avoid "Request too large" errors.
+  const maxOutputTokens = name === "groq" ? 800 : 4096;
+
   return {
     name,
     defaultModel,
@@ -39,7 +42,7 @@ export function createOpenAICompat(name: string, baseURL: string, apiKey: string
       const stream = await client.chat.completions.create({
         model,
         stream: true,
-        max_tokens:5000,
+        max_tokens: maxOutputTokens,
         stream_options: { include_usage: true }, // usage comes in the last chunk
         messages: system ? [{ role: "system", content: system }, ...chat] : chat,
         tools: tools.length

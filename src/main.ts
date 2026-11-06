@@ -7,6 +7,17 @@ import type { AssistantMessage, Message } from "./types.ts";
 import { readTool } from "./tools/read.ts";
 import { runAgent } from "./agent/loop.ts";
 import { tools } from "./tools/index.ts";
+
+process.on("unhandledRejection", (reason) => {
+  console.error("\\n[Critical] Unhandled Rejection:", reason);
+  process.exit(1);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("\\n[Critical] Uncaught Exception:", error);
+  process.exit(1);
+});
+
 // load the .env next to the code, so mypi works from any folder
 config({
   path: fileURLToPath(new URL("../.env", import.meta.url)),

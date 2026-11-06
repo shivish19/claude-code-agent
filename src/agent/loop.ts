@@ -33,15 +33,14 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
   
   for(let turn=1; turn<=maxTurns; ++turn){
         let assistant:AssistantMessage|undefined
-        
+        let toolCallRetries = 0;
+
         let contextMessages = messages;
-        if (messages.length > 10) {
+        if (messages.length > 20) {
             const firstUserMsg = messages.find(m => m.role === "user");
-            const recent = messages.slice(-9);
-            
+            const recent = messages.slice(-19);
+
             if (firstUserMsg) {
-                // Always keep the original user query, then add recent messages.
-                // Avoid duplicating the first message if it happens to be in the recent slice.
                 const recentWithoutFirst = recent.filter(m => m !== firstUserMsg);
                 contextMessages = [firstUserMsg, ...recentWithoutFirst];
             } else {
@@ -54,12 +53,30 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
                 if(event.type==="text_delta") onEvent({type:"text", delta:event.delta})
                 else assistant = event.message
             }
-        } catch (e) {
-            const errMsg = e instanceof Error ? e.message : String(e);
-            onEvent({ type: "message", message: { role: "user", content: `System Error during streaming: ${errMsg}` } });
-            return;
+        } catch (e: any) {
+            const isRateLimit = e instanceof Error && (e.message.includes("413") || e.message.includes("rate_limit"));
+            const isToolFailure = e?.error?.code === "tool_use_failed" || e?.message?.includes("tool call validation failed");
+            
+            console.error(`[Agent Error] Turn ${turn} failed:`, e);
+            
+            if (isRateLimit) {
+                console.log("[System] Rate limit hit. Waiting 5 seconds before retry...");
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                turn--; 
+                continue;
+            }
+
+            if (isToolFailure && toolCallRetries < 2) {
+                console.log(`[System] Tool validation failed. Retrying turn ${turn} (attempt ${toolCallRetries + 1}/2)...`);
+                toolCallRetries++;
+                turn--; 
+                continue;
+            }
+            
+            onEvent({ type: "message", message: { role: "user", content: `Error: ${e instanceof Error ? e.message : String(e)}` } });
+            continue;
         }
-        if(!assistant) throw new Error('assistant khali h ')
+        if(!assistant) continue;
         push(assistant);
         onEvent({type:"turn_end",message:assistant})
 
@@ -73,10 +90,10 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
 
             try {
                 const tool=tools.find((t)=>t.name===call.name);
-                if(!tool) throw new Error(`unknown tool name ${tool}`)
+                if(!tool) throw new Error(`unknown tool name ${call.name}`)
                 result = await tool.execute(call.arguments)
-                if (result.length > 3000) {
-                    result = result.substring(0, 3000) + "\n... [truncated]";
+                if (result.length > 4000) {
+                    result = result.substring(0, 4000) + "\n... [truncated to fit token limits]";
                 }
             } catch (e) {
                 result=`Error ${e instanceof Error?e.message:String(e)}`
@@ -86,5 +103,4 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
             push({role:"toolResult",toolCallId:call.id,toolName:call.name, content:result, isError})
         }
   }
-  throw new Error(`stopped after ${maxTurns} khtm`)
 }
