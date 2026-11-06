@@ -70,7 +70,15 @@ export function createOpenAICompat(name: string, baseURL: string, apiKey: string
       }
       const content: ContentBlock[] = text ? [{ type: "text", text }] : [];
       for (const c of calls) {
-        if (c) content.push({ type: "toolCall", id: c.id, name: c.name, arguments: c.args ? JSON.parse(c.args) : {} });
+        if (c) {
+          let args = {};
+          try {
+            args = c.args ? JSON.parse(c.args) : {};
+          } catch (e) {
+            console.error(`Failed to parse tool arguments: ${c.args}`);
+          }
+          content.push({ type: "toolCall", id: c.id, name: c.name, arguments: args });
+        }
       }
       if (content.some((b) => b.type === "toolCall")) stopReason = "toolUse";
       yield { type: "done", message: { role: "assistant", content, usage, stopReason } };

@@ -35,16 +35,29 @@ export async function runAgent(opts: AgentOptions): Promise<void> {
         let assistant:AssistantMessage|undefined
         
         let contextMessages = messages;
-        if (messages.length > 6) {
-            contextMessages = messages.slice(-6);
-            if (contextMessages.length > 0 && contextMessages[0].role === "toolResult") {
-                contextMessages = messages.slice(-7);
+        if (messages.length > 10) {
+            const firstUserMsg = messages.find(m => m.role === "user");
+            const recent = messages.slice(-9);
+            
+            if (firstUserMsg) {
+                // Always keep the original user query, then add recent messages.
+                // Avoid duplicating the first message if it happens to be in the recent slice.
+                const recentWithoutFirst = recent.filter(m => m !== firstUserMsg);
+                contextMessages = [firstUserMsg, ...recentWithoutFirst];
+            } else {
+                contextMessages = recent;
             }
         }
 
-        for await(const event of provider.stream({messages: contextMessages, model, system, tools})){
-            if(event.type==="text_delta") onEvent({type:"text", delta:event.delta})
-            else assistant = event.message
+        try {
+            for await(const event of provider.stream({messages: contextMessages, model, system, tools})){
+                if(event.type==="text_delta") onEvent({type:"text", delta:event.delta})
+                else assistant = event.message
+            }
+        } catch (e) {
+            const errMsg = e instanceof Error ? e.message : String(e);
+            onEvent({ type: "message", message: { role: "user", content: `System Error during streaming: ${errMsg}` } });
+            return;
         }
         if(!assistant) throw new Error('assistant khali h ')
         push(assistant);
